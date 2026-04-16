@@ -1,0 +1,38 @@
+{
+  "base_url": {
+    "description": "Wiki 站点地址",
+    "type": "string",
+    "hint": "默认使用哔哩哔哩 BWIKI 的洛克王国世界站点",
+    "default": "https://wiki.biligame.com/rocom"
+  },
+  "request_timeout": {
+    "description": "单次请求超时时间（秒）",
+    "type": "float",
+    "hint": "网络较慢时可以适当调大",
+    "default": 10.0
+  },
+  "candidate_limit": {
+    "description": "搜索候选数量",
+    "type": "int",
+    "hint": "用于从 Wiki 搜索接口拉取多少个候选词条",
+    "default": 5
+  },
+  "summary_length": {
+    "description": "摘要最大长度",
+    "type": "int",
+    "hint": "超过长度会自动截断并追加省略号",
+    "default": 280
+  },
+  "render_as_image": {
+    "description": "是否优先以图片卡片返回结果",
+    "type": "bool",
+    "hint": "开启后会使用 HTML 渲染图片，失败时自动回退为文本",
+    "default": true
+  },
+  "user_agent": {
+    "description": "请求使用的 User-Agent",
+    "type": "string",
+    "hint": "一般保持默认即可，必要时可按站点规则调整",
+    "default": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+  }
+}
