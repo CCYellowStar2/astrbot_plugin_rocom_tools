@@ -1,6 +1,6 @@
 name: astrbot_plugin_rocom_tools
 display_name: 洛克王国世界工具箱
 author: CCYellowStar2
-description: 洛克王国世界 Wiki、生蛋与蛋组查询 AstrBot 插件
+description: 洛克王国世界 Wiki、生蛋与蛋组查询、孵蛋反查 AstrBot 插件
 version: 0.1.0
 repo: https://github.com/CCYellowStar2/astrbot_plugin_rocom_tools
