@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Iterable
 
 import httpx
@@ -83,9 +84,49 @@ class EggGroupLookupResult:
     candidates: list[str] = field(default_factory=list)
 
 
+@dataclass
+class MagicEggPetPreview:
+    display_name: str = ""
+    page_name: str = ""
+    type_name: str = ""
+    family_chain: str = ""
+    evolution_chain: list[str] = field(default_factory=list)
+    avatar_url: str = ""
+    body_url: str = ""
+    species_code: str = ""
+
+
+@dataclass
+class MagicEggMatch:
+    display_name: str = ""
+    confidence: str = ""
+    confidence_text: str = ""
+    fit_score: float = 0.0
+    pet_preview: MagicEggPetPreview = field(default_factory=MagicEggPetPreview)
+
+
+@dataclass
+class MagicEggLookupResult:
+    height_m: float = 0.0
+    weight_kg: float = 0.0
+    lookup_strategy: str = ""
+    matched: list[MagicEggMatch] = field(default_factory=list)
+    available_hatch_time_options: list[str] = field(default_factory=list)
+
+
 def split_egg_query_terms(text: str) -> list[str]:
     parts = str(text or "").replace("，", " ").replace("、", " ").replace(",", " ").split()
     return [part.strip() for part in parts if part.strip()]
+
+
+def extract_magic_egg_measurements(text: str) -> tuple[float, float] | None:
+    matches = re.findall(r"\d+(?:\.\d+)?", str(text or ""))
+    if len(matches) < 2:
+        return None
+    try:
+        return float(matches[0]), float(matches[1])
+    except ValueError:
+        return None
 
 
 class EggQueryService:
@@ -215,6 +256,28 @@ class EggQueryService:
             candidates=candidates,
         )
 
+    async def lookup_magic_egg(self, height_m: float, weight_kg: float) -> MagicEggLookupResult:
+        payload = await self._request_json(
+            "/magic-egg-lookup",
+            {
+                "height_m": _format_decimal(height_m),
+                "weight_kg": _format_decimal(weight_kg),
+            },
+        )
+        if not isinstance(payload, dict):
+            return MagicEggLookupResult(height_m=height_m, weight_kg=weight_kg)
+
+        matched = [_parse_magic_egg_match(item) for item in payload.get("matched", [])]
+        return MagicEggLookupResult(
+            height_m=float(payload.get("input", {}).get("height_m") or height_m),
+            weight_kg=float(payload.get("input", {}).get("weight_kg") or weight_kg),
+            lookup_strategy=str(payload.get("lookup_strategy", "")).strip(),
+            matched=[item for item in matched if item is not None],
+            available_hatch_time_options=[
+                str(item).strip() for item in payload.get("available_hatch_time_options", []) if str(item).strip()
+            ],
+        )
+
     async def format_single_pet_result(self, keyword: str, result: EggLookupResult, limit: int = 30) -> str:
         if result.pet is None:
             return f"没有找到与“{keyword}”相关的生蛋精灵。"
@@ -285,6 +348,37 @@ class EggQueryService:
             lines.append(f"其他候选: {'、'.join(other_groups[:3])}")
         return "\n".join(lines)
 
+    def format_magic_egg_result(
+        self,
+        result: MagicEggLookupResult,
+        limit: int = 6,
+    ) -> str:
+        height_text = _format_decimal(result.height_m)
+        weight_text = _format_decimal(result.weight_kg)
+        lines = [f"【孵蛋反查】", f"输入: 身高 {height_text} m / 体重 {weight_text} kg"]
+
+        if not result.matched:
+            lines.append("没有找到符合这组身高体重的候选精灵。")
+            return "\n".join(lines)
+
+        lines.append(f"候选数量: {len(result.matched)}")
+        for index, match in enumerate(result.matched[:limit], start=1):
+            preview = match.pet_preview
+            name = preview.page_name or preview.display_name or match.display_name
+            lines.append(
+                f"{index}. {name} | 匹配度 {match.fit_score:.2f} | 置信度 {match.confidence_text or match.confidence or '未知'}"
+            )
+            if preview.type_name:
+                lines.append(f"属性: {preview.type_name}")
+            chain = preview.family_chain or " → ".join(preview.evolution_chain)
+            if chain:
+                lines.append(f"进化链: {chain}")
+
+        remaining = len(result.matched) - limit
+        if remaining > 0:
+            lines.append(f"其余 {remaining} 个候选已省略。")
+        return "\n".join(lines)
+
     async def _request_json(self, path: str, params: dict[str, str]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.get(f"{self.api_base}{path}", params=params)
@@ -312,6 +406,38 @@ def _parse_pet(payload: Any) -> EggPet | None:
         hatch_status_text=str(payload.get("hatch_status_text", "")).strip(),
         class_name=str(payload.get("class_name", "")).strip(),
         type_name=str(payload.get("type_name", "")).strip(),
+        avatar_url=str(payload.get("avatar_url", "")).strip(),
+        body_url=str(payload.get("body_url", "")).strip(),
+        species_code=str(payload.get("species_code", "") or "").strip(),
+    )
+
+
+def _parse_magic_egg_match(payload: Any) -> MagicEggMatch | None:
+    if not isinstance(payload, dict):
+        return None
+    return MagicEggMatch(
+        display_name=str(payload.get("display_name", "")).strip(),
+        confidence=str(payload.get("confidence", "")).strip(),
+        confidence_text=str(payload.get("confidence_text", "")).strip(),
+        fit_score=float(payload.get("fit_score") or 0.0),
+        pet_preview=_parse_magic_egg_preview(payload.get("pet_preview")),
+    )
+
+
+def _parse_magic_egg_preview(payload: Any) -> MagicEggPetPreview:
+    if not isinstance(payload, dict):
+        return MagicEggPetPreview()
+    evolution_chain = [
+        str(item).strip()
+        for item in payload.get("evolution_chain", [])
+        if str(item).strip()
+    ]
+    return MagicEggPetPreview(
+        display_name=str(payload.get("display_name", "")).strip(),
+        page_name=str(payload.get("page_name", "")).strip(),
+        type_name=str(payload.get("type_name", "")).strip(),
+        family_chain=str(payload.get("family_chain", "")).strip(),
+        evolution_chain=evolution_chain,
         avatar_url=str(payload.get("avatar_url", "")).strip(),
         body_url=str(payload.get("body_url", "")).strip(),
         species_code=str(payload.get("species_code", "") or "").strip(),
@@ -426,3 +552,8 @@ def _dedupe_texts(values: Iterable[str]) -> list[str]:
         if text and text not in result:
             result.append(text)
     return result
+
+
+def _format_decimal(value: float) -> str:
+    text = f"{float(value):.3f}".rstrip("0").rstrip(".")
+    return text or "0"
