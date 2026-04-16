@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover
     AstrBotConfig = dict  # type: ignore[misc,assignment]
 
 try:
-    from .egg_service import EggQueryService, split_egg_query_terms
+    from .egg_service import EggQueryService, extract_magic_egg_measurements, split_egg_query_terms
     from .wiki_service import (
         DEFAULT_BASE_URL,
         DEFAULT_BROWSER_UA,
@@ -33,7 +33,7 @@ try:
         build_skill_card_context,
     )
 except ImportError:  # pragma: no cover
-    from egg_service import EggQueryService, split_egg_query_terms  # type: ignore[no-redef]
+    from egg_service import EggQueryService, extract_magic_egg_measurements, split_egg_query_terms  # type: ignore[no-redef]
     from wiki_service import (  # type: ignore[no-redef]
         DEFAULT_BASE_URL,
         DEFAULT_BROWSER_UA,
@@ -60,6 +60,8 @@ EGG_COMMAND_NAME = "生蛋查询"
 EGG_COMMAND_ALIASES = {"蛋配查询", "生蛋"}
 EGG_GROUP_COMMAND_NAME = "蛋组查询"
 EGG_GROUP_COMMAND_ALIASES = {"蛋组", "蛋组精灵"}
+MAGIC_EGG_COMMAND_NAME = "孵蛋反查"
+MAGIC_EGG_COMMAND_ALIASES = {"蛋反查", "孵蛋查询"}
 
 
 def _as_float(value: Any, default: float) -> float:
@@ -221,3 +223,22 @@ class RocomWikiBotPlugin(Star):
         except Exception as exc:  # pragma: no cover
             logger.error(f"rocom_wiki_bot egg group query unexpected error: {exc}")
             yield event.plain_result("查询蛋组信息时发生了意外错误，请稍后重试。")
+
+    @filter.command(MAGIC_EGG_COMMAND_NAME, alias=MAGIC_EGG_COMMAND_ALIASES)
+    async def query_magic_egg(self, event: AstrMessageEvent):
+        """根据蛋的身高体重反查可能精灵。"""
+        message_text = getattr(event, "message_str", "")
+        query_text = extract_keyword_from_message(message_text, {MAGIC_EGG_COMMAND_NAME, *MAGIC_EGG_COMMAND_ALIASES})
+        measurements = extract_magic_egg_measurements(query_text)
+
+        if measurements is None:
+            yield event.plain_result("用法: /孵蛋反查 <身高> <体重>\n示例: /孵蛋反查 0.35 7.45")
+            return
+
+        height_m, weight_kg = measurements
+        try:
+            result = await self.egg_service.lookup_magic_egg(height_m, weight_kg)
+            yield event.plain_result(self.egg_service.format_magic_egg_result(result))
+        except Exception as exc:  # pragma: no cover
+            logger.error(f"rocom_wiki_bot magic egg query unexpected error: {exc}")
+            yield event.plain_result("查询孵蛋反查信息时发生了意外错误，请稍后重试。")
